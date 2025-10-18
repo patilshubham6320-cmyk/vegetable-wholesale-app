@@ -1,0 +1,2845 @@
+<script>
+        // App State
+        var appState = {
+            isAuthenticated: false,
+            hasPin: false,
+            activeTab: 'customers',
+            currentCustomer: null,
+            currentSupplier: null,
+            customers: [
+                { id: 1, name: 'Ramesh Traders', phone: '9876543210' }
+            ],
+            suppliers: [
+                { id: 1, name: 'Kishan Farm', phone: '9123456789' }
+            ],
+            customerTransactions: [
+                { 
+                    id: 1, 
+                    customerId: 1, 
+                    date: '2024-01-15', 
+                    item: 'Tomato', 
+                    unit: 10, 
+                    pricePerUnit: 50, 
+                    totalAmount: 500, 
+                    receivedAmount: 300 
+                }
+            ],
+            supplierTransactions: [
+                { 
+                    id: 1, 
+                    supplierId: 1, 
+                    date: '2024-01-15', 
+                    maalInKareet: 100, 
+                    rattan: 5, 
+                    bajarBhav: 45, 
+                    kalam: 4275, 
+                    jama: 4000, 
+                    baki: 275 
+                }
+            ],
+            supplierPayments: []
+        };
+
+        // Helper Functions
+        function formatCurrency(amount) {
+            return '₹' + amount.toLocaleString();
+        }
+
+        function getDayName(dateString) {
+            var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            var date = new Date(dateString);
+            return days[date.getDay()];
+        }
+
+        function getCustomerPendingAmount(customerId) {
+            var total = 0;
+            for (var i = 0; i < appState.customerTransactions.length; i++) {
+                var txn = appState.customerTransactions[i];
+                if (txn.customerId === customerId) {
+                    total += (txn.totalAmount - txn.receivedAmount);
+                }
+            }
+            return total;
+        }
+
+        function getSupplierPendingAmount(supplierId) {
+            var total = 0;
+            for (var i = 0; i < appState.supplierTransactions.length; i++) {
+                var txn = appState.supplierTransactions[i];
+                if (txn.supplierId === supplierId) {
+                    total += txn.baki;
+                }
+            }
+            return total;
+        }
+
+        function saveData() {
+            localStorage.setItem('business_data', JSON.stringify(appState));
+        }
+
+        function showError(element, message) {
+            element.textContent = message;
+            element.classList.remove('hidden');
+            element.classList.add('error-message');
+        }
+
+        function showSuccess(element, message) {
+            element.textContent = message;
+            element.classList.remove('hidden', 'error-message');
+            element.classList.add('success-message');
+        }
+
+        function hideError(element) {
+            element.classList.add('hidden');
+        }
+
+        // Modal Functions
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        // PIN Management Functions
+        var generatedOTP = '';
+        var otpVerified = false;
+
+        function showPinSetup() {
+            document.getElementById('pinSetupScreen').classList.remove('hidden');
+            document.getElementById('pinEntryScreen').classList.add('hidden');
+            document.getElementById('forgotPinScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        function showPinEntry() {
+            document.getElementById('pinSetupScreen').classList.add('hidden');
+            document.getElementById('pinEntryScreen').classList.remove('hidden');
+            document.getElementById('forgotPinScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        function showMainApp() {
+            document.getElementById('pinSetupScreen').classList.add('hidden');
+            document.getElementById('pinEntryScreen').classList.add('hidden');
+            document.getElementById('forgotPinScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            renderCustomers();
+            renderSuppliers();
+        }
+
+        function showForgotPinScreen() {
+            var storedPhone = localStorage.getItem('user_phone');
+            var storedEmail = localStorage.getItem('user_email');
+            
+            if (!storedPhone && !storedEmail) {
+                alert('No recovery contact found. Please contact support.');
+                return;
+            }
+            
+            document.getElementById('pinSetupScreen').classList.add('hidden');
+            document.getElementById('pinEntryScreen').classList.add('hidden');
+            document.getElementById('forgotPinScreen').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+            
+            // Show registered contact
+            var contactToShow = storedPhone || storedEmail;
+            document.getElementById('forgotPinPhone').value = contactToShow;
+            
+            // Reset sections
+            document.getElementById('contactSection').classList.remove('hidden');
+            document.getElementById('otpSection').classList.add('hidden');
+            document.getElementById('resetPinSection').classList.add('hidden');
+            otpVerified = false;
+        }
+
+        function backToLogin() {
+            showPinEntry();
+        }
+
+        function maskPhone(phone) {
+            if (!phone) return '';
+            if (phone.length < 4) return phone;
+            var visible = phone.slice(-4);
+            var masked = phone.slice(0, -4).replace(/./g, '*');
+            return masked + visible;
+        }
+
+        function sendOTP() {
+            var phone = document.getElementById('forgotPinPhone').value;
+            
+            if (!phone) {
+                showError(document.getElementById('forgotPinError'), 'Phone number not found');
+                return;
+            }
+            
+            // Generate 6-digit OTP
+            generatedOTP = Math.floor(100000 + Math.random() * 900000).toString();
+            
+            // In real app, send OTP via SMS API
+            console.log('OTP Generated:', generatedOTP);
+            alert('OTP sent to your registered contact!\n\nFor demo purposes, OTP is: ' + generatedOTP + '\n\n(In production, this would be sent via SMS)');
+            
+            // Show OTP section
+            document.getElementById('contactSection').classList.add('hidden');
+            document.getElementById('otpSection').classList.remove('hidden');
+            document.getElementById('maskedPhone').textContent = maskPhone(phone);
+            hideError(document.getElementById('forgotPinError'));
+        }
+
+        function resendOTP() {
+            sendOTP();
+        }
+
+        function verifyOTP() {
+            var enteredOTP = document.getElementById('otpInput').value;
+            var errorDiv = document.getElementById('otpError');
+            
+            if (!enteredOTP) {
+                showError(errorDiv, 'Please enter OTP');
+                return;
+            }
+            
+            if (enteredOTP === generatedOTP) {
+                otpVerified = true;
+                hideError(errorDiv);
+                
+                // Show reset PIN section
+                document.getElementById('otpSection').classList.add('hidden');
+                document.getElementById('resetPinSection').classList.remove('hidden');
+                
+                showSuccess(errorDiv, 'OTP Verified! Set your new PIN');
+                setTimeout(function() {
+                    hideError(errorDiv);
+                }, 2000);
+            } else {
+                showError(errorDiv, 'Invalid OTP. Please try again.');
+                document.getElementById('otpInput').value = '';
+            }
+        }
+
+        function resetPin() {
+            if (!otpVerified) {
+                alert('Please verify OTP first');
+                return;
+            }
+            
+            var newPin = document.getElementById('resetNewPin').value;
+            var confirmPin = document.getElementById('resetConfirmPin').value;
+            var errorDiv = document.getElementById('resetPinError');
+            
+            if (newPin.length < 4) {
+                showError(errorDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(errorDiv, 'PINs do not match');
+                return;
+            }
+            
+            // Save new PIN
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            showSuccess(errorDiv, 'PIN reset successfully!');
+            
+            setTimeout(function() {
+                alert('PIN has been reset successfully! Please login with your new PIN.');
+                showPinEntry();
+            }, 2000);
+        }
+
+        function setupPin() {
+            var newPin = document.getElementById('newPin').value;
+            var confirmPin = document.getElementById('confirmPin').value;
+            var email = document.getElementById('backupEmail').value;
+            var errorDiv = document.getElementById('setupError');
+            
+            if (newPin.length < 4) {
+                showError(errorDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(errorDiv, 'PINs do not match');
+                return;
+            }
+            
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            // Save email as recovery contact
+            if (email) {
+                localStorage.setItem('user_email', email);
+                localStorage.setItem('user_phone', email); // For demo, using email as contact
+            }
+            
+            appState.hasPin = true;
+            appState.isAuthenticated = true;
+            hideError(errorDiv);
+            showMainApp();
+        }
+
+        function verifyPin() {
+            var enteredPin = document.getElementById('entryPin').value;
+            var storedPin = localStorage.getItem('app_pin');
+            var errorDiv = document.getElementById('entryError');
+            var hashedEnteredPin = btoa(enteredPin);
+            
+            if (hashedEnteredPin === storedPin) {
+                appState.isAuthenticated = true;
+                hideError(errorDiv);
+                document.getElementById('entryPin').value = '';
+                showMainApp();
+            } else {
+                showError(errorDiv, 'Incorrect PIN. Please try again.');
+                document.getElementById('entryPin').value = '';
+            }
+        }
+
+        function changePin() {
+            var newPin = document.getElementById('newPinSettings').value;
+            var confirmPin = document.getElementById('confirmPinSettings').value;
+            var messageDiv = document.getElementById('settingsMessage');
+            
+            if (newPin.length < 4) {
+                showError(messageDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(messageDiv, 'PINs do not match');
+                return;
+            }
+            
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            showSuccess(messageDiv, 'PIN changed successfully!');
+            document.getElementById('newPinSettings').value = '';
+            document.getElementById('confirmPinSettings').value = '';
+            
+            setTimeout(function() {
+                hideError(messageDiv);
+                closeModal('settingsModal');
+            }, 2000);
+        }
+
+        function saveEmail() {
+            var email = document.getElementById('settingsEmail').value;
+            var messageDiv = document.getElementById('settingsMessage');
+            
+            if (email) {
+                localStorage.setItem('user_email', email);
+                showSuccess(messageDiv, 'Email saved successfully!');
+                setTimeout(function() { hideError(messageDiv); }, 2000);
+            }
+        }
+
+        // Navigation
+        function switchTab(tab) {
+            appState.activeTab = tab;
+            document.getElementById('customersTab').classList.toggle('hidden', tab !== 'customers');
+            document.getElementById('suppliersTab').classList.toggle('hidden', tab !== 'suppliers');
+            
+            var navTabs = document.querySelectorAll('.nav-tab');
+            var bottomBtns = document.querySelectorAll('.bottom-nav-btn');
+            
+            for (var i = 0; i < navTabs.length; i++) {
+                navTabs[i].classList.remove('active');
+            }
+            for (var i = 0; i < bottomBtns.length; i++) {
+                bottomBtns[i].classList.remove('active');
+            }
+            
+            if (tab === 'customers') {
+                navTabs[0].classList.add('active');
+                bottomBtns[0].classList.add('active');
+            } else if (tab === 'suppliers') {
+                navTabs[1].classList.add('active');
+                bottomBtns[1].classList.add('active');
+            }
+        }
+
+        // Modal Show Functions
+        function showAddCustomerModal() {
+            document.getElementById('customerName').value = '';
+            document.getElementById('customerPhone').value = '';
+            showModal('addCustomerModal');
+        }
+
+        function showAddSupplierModal() {
+            document.getElementById('supplierName').value = '';
+            document.getElementById('supplierPhone').value = '';
+            showModal('addSupplierModal');
+        }
+
+        function showSettingsModal() {
+            var email = localStorage.getItem('user_email') || '';
+            document.getElementById('settingsEmail').value = email;
+            showModal('settingsModal');
+        }
+
+        function showBackupModal() {
+            showModal('backupModal');
+        }
+
+        function showCustomerTransaction(customer) {
+            appState.currentCustomer = customer;
+            var pending = getCustomerPendingAmount(customer.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('customerTxnDate').value = today;
+            document.getElementById('customerNameDisplay').textContent = customer.name;
+            document.getElementById('customerPendingDisplay').textContent = 'Current Pending: ' + formatCurrency(pending);
+            document.getElementById('customerPendingDisplay').className = pending > 0 ? 'pending-positive' : 'pending-zero';
+            
+            document.getElementById('vegetableItem').value = '';
+            document.getElementById('saleUnits').value = '';
+            document.getElementById('salePrice').value = '';
+            document.getElementById('receivedAmount').value = '';
+            document.getElementById('saleTotalBox').classList.add('hidden');
+            
+            showModal('customerTransactionModal');
+        }
+
+        function showSupplierTransaction(supplier) {
+            appState.currentSupplier = supplier;
+            var pending = getSupplierPendingAmount(supplier.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('supplierTxnDate').value = today;
+            document.getElementById('supplierNameDisplay').textContent = supplier.name;
+            document.getElementById('supplierPendingDisplay').textContent = 'Current Baki: ' + formatCurrency(pending);
+            document.getElementById('supplierPendingDisplay').className = pending > 0 ? 'pending-positive' : 'pending-zero';
+            
+            document.getElementById('maalInKareet').value = '';
+            document.getElementById('rattan').value = '';
+            document.getElementById('bajarBhav').value = '';
+            document.getElementById('jamaAmount').value = '';
+            document.getElementById('supplierCalculationBox').classList.add('hidden');
+            document.getElementById('bakiBox').classList.add('hidden');
+            
+            showModal('supplierTransactionModal');
+        }
+
+        function showPaymentModal(customer) {
+            appState.currentCustomer = customer;
+            var pending = getCustomerPendingAmount(customer.id);
+            
+            document.getElementById('paymentCustomerName').textContent = customer.name;
+            document.getElementById('paymentCustomerPending').textContent = 'Current Pending: ' + formatCurrency(pending);
+            document.getElementById('paymentAmount').value = '';
+            
+            showModal('paymentModal');
+        }
+
+        function showSupplierPaymentModal(supplier) {
+            appState.currentSupplier = supplier;
+            var pending = getSupplierPendingAmount(supplier.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('supplierPaymentName').textContent = supplier.name;
+            document.getElementById('supplierPaymentPending').textContent = 'Current Baki: ' + formatCurrency(pending);
+            document.getElementById('supplierPaymentAmount').value = '';
+            document.getElementById('supplierPaymentDate').value = today;
+            
+            showModal('supplierPaymentModal');
+        }
+
+        // Calculation Functions
+        function calculateSaleTotal() {
+            var units = parseFloat(document.getElementById('saleUnits').value) || 0;
+            var price = parseFloat(document.getElementById('salePrice').value) || 0;
+            var total = units * price;
+            
+            if (total > 0) {
+                document.getElementById('saleTotalAmount').textContent = formatCurrency(total);
+                document.getElementById('saleTotalBox').classList.remove('hidden');
+            } else {
+                document.getElementById('saleTotalBox').classList.add('hidden');
+            }
+        }
+
+        function calculateSupplierTotal() {
+            var maal = parseFloat(document.getElementById('maalInKareet').value) || 0;
+            var rattan = parseFloat(document.getElementById('rattan').value) || 0;
+            var bhav = parseFloat(document.getElementById('bajarBhav').value) || 0;
+            var jama = parseFloat(document.getElementById('jamaAmount').value) || 0;
+            
+            var totalSupply = maal - rattan;
+            var kalam = totalSupply * bhav;
+            var baki = kalam - jama;
+            
+            if (maal > 0 && bhav > 0) {
+                document.getElementById('totalSupply').textContent = 'Total Supply: ' + totalSupply + ' kareet';
+                document.getElementById('kalamAmount').textContent = 'Kalam: ' + formatCurrency(kalam);
+                document.getElementById('supplierCalculationBox').classList.remove('hidden');
+                
+                if (jama > 0) {
+                    document.getElementById('bakiAmount').textContent = formatCurrency(baki);
+                    document.getElementById('bakiBox').classList.remove('hidden');
+                } else {
+                    document.getElementById('bakiBox').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('supplierCalculationBox').classList.add('hidden');
+                document.getElementById('bakiBox').classList.add('hidden');
+            }
+        }
+
+        // Add Functions
+        function addCustomer() {
+            var name = document.getElementById('customerName').value;
+            var phone = document.getElementById('customerPhone').value;
+            
+            if (!name || !phone) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            var newCustomer = {
+                id: Date.now(),
+                name: name,
+                phone: phone
+            };
+            
+            appState.customers.push(newCustomer);
+            saveData();
+            renderCustomers();
+            closeModal('addCustomerModal');
+        }
+
+        function addSupplier() {
+            var name = document.getElementById('supplierName').value;
+            var phone = document.getElementById('supplierPhone').value;
+            
+            if (!name || !phone) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            var newSupplier = {
+                id: Date.now(),
+                name: name,
+                phone: phone
+            };
+            
+            appState.suppliers.push(newSupplier);
+            saveData();
+            renderSuppliers();
+            closeModal('addSupplierModal');
+        }
+
+        function addCustomerTransaction() {
+            var date = document.getElementById('customerTxnDate').value;
+            var item = document.getElementById('vegetableItem').value;
+            var units = parseFloat(document.getElementById('saleUnits').value);
+            var price = parseFloat(document.getElementById('salePrice').value);
+            var received = parseFloat(document.getElementById('receivedAmount').value) || 0;
+            
+            if (!date || !item || !units || !price) {
+                alert('Please fill all required fields');
+                return;
+            }
+            
+            var totalAmount = units * price;
+            
+            var transaction = {
+                id: Date.now(),
+                customerId: appState.currentCustomer.id,
+                date: date,
+                day: getDayName(date),
+                item: item,
+                unit: units,
+                pricePerUnit: price,
+                totalAmount: totalAmount,
+                receivedAmount: received
+            };
+            
+            appState.customerTransactions.push(transaction);
+            saveData();
+            renderCustomers();
+            closeModal('customerTransactionModal');
+        }
+
+        function addSupplierTransaction() {
+            var date = document.getElementById('supplierTxnDate').value;
+            var maal = parseFloat(document.getElementById('maalInKareet').value);
+            var rattan = parseFloat(document.getElementById('rattan').value) || 0;
+            var bhav = parseFloat(document.getElementById('bajarBhav').value);
+            var jama = parseFloat(document.getElementById('jamaAmount').value) || 0;
+            
+            if (!date || !maal || !bhav) {
+                alert('Please fill all required fields');
+                return;
+            }
+            
+            var totalSupply = maal - rattan;
+            var kalam = totalSupply * bhav;
+            var baki = kalam - jama;
+            
+            var transaction = {
+                id: Date.now(),
+                supplierId: appState.currentSupplier.id,
+                date: date,
+                day: getDayName(date),
+                maalInKareet: maal,
+                rattan: rattan,
+                bajarBhav: bhav,
+                totalSupply: totalSupply,
+                kalam: kalam,
+                jama: jama,
+                baki: baki
+            };
+            
+            appState.supplierTransactions.push(transaction);
+            saveData();
+            renderSuppliers();
+            closeModal('supplierTransactionModal');
+        }
+
+        function addPayment() {
+            var amount = parseFloat(document.getElementById('paymentAmount').value);
+            
+            if (!amount || amount <= 0) {
+                alert('Please enter a valid payment amount');
+                return;
+            }
+            
+            var pendingTxns = [];
+            for (var i = 0; i < appState.customerTransactions.length; i++) {
+                var txn = appState.customerTransactions[i];
+                if (txn.customerId === appState.currentCustomer.id && txn.receivedAmount < txn.totalAmount) {
+                    pendingTxns.push(txn);
+                }
+            }
+            
+            if (pendingTxns.length > 0) {
+                pendingTxns.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+                var txn = pendingTxns[0];
+                var remaining = txn.totalAmount - txn.receivedAmount;
+                var paymentToApply = Math.min(amount, remaining);
+                
+                for (var j = 0; j < appState.customerTransactions.length; j++) {
+                    if (appState.customerTransactions[j].id === txn.id) {
+                        appState.customerTransactions[j].receivedAmount += paymentToApply;
+                        break;
+                    }
+                }
+            }
+            
+            saveData();
+            renderCustomers();
+            closeModal('paymentModal');
+        }
+
+        function addSupplierPayment() {
+            var amount = parseFloat(document.getElementById('supplierPaymentAmount').value);
+            var date = document.getElementById('supplierPaymentDate').value;
+            
+            if (!amount || amount <= 0) {
+                alert('Please enter a valid payment amount');
+                return;
+            }
+            
+            if (!date) {
+                alert('Please select payment date');
+                return;
+            }
+            
+            var pendingTxns = [];
+            for (var i = 0; i < appState.supplierTransactions.length; i++) {
+                var txn = appState.supplierTransactions[i];
+                if (txn.supplierId === appState.currentSupplier.id && txn.baki > 0) {
+                    pendingTxns.push(txn);
+                }
+            }
+            
+            if (pendingTxns.length > 0) {
+                pendingTxns.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+                
+                var remainingPayment = amount;
+                for (var i = 0; i < pendingTxns.length && remainingPayment > 0; i++) {
+                    var txn = pendingTxns[i];
+                    var paymentToApply = Math.min(remainingPayment, txn.baki);
+                    
+                    for (var j = 0; j < appState.supplierTransactions.length; j++) {
+                        if (appState.supplierTransactions[j].id === txn.id) {
+                            appState.supplierTransactions[j].jama += paymentToApply;
+                            appState.supplierTransactions[j].baki -= paymentToApply;
+                            break;
+                        }
+                    }
+                    remainingPayment -= paymentToApply;
+                }
+            }
+            
+            var payment = {
+                id: Date.now(),
+                supplierId: appState.currentSupplier.id,
+                amount: amount,
+                date: date,
+                day: getDayName(date)
+            };
+            
+            appState.supplierPayments.push(payment);
+            saveData();
+            renderSuppliers();
+            closeModal('supplierPaymentModal');
+        }
+
+        // Backup Functions
+        function createBackup() {
+            var data = {
+                customers: appState.customers,
+                suppliers: appState.suppliers,
+                customerTransactions: appState.customerTransactions,
+                supplierTransactions: appState.supplierTransactions,
+                supplierPayments: appState.supplierPayments,
+                backupDate: new Date().toISOString()
+            };
+            
+            var storedPin = localStorage.getItem('app_pin');
+            var encryptedData = btoa(JSON.stringify(data) + storedPin);
+            
+            var blob = new Blob([encryptedData], { type: 'text/plain' });
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'vegetable_business_backup_' + new Date().toISOString().split('T')[0] + '.vbak';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            var email = localStorage.getItem('user_email');
+            if (email) {
+                alert('Backup created! In a real app, this would be emailed to: ' + email);
+            } else {
+                alert('Backup file downloaded successfully!');
+            }
+            
+            closeModal('backupModal');
+        }
+
+        function restoreFromBackup(event) {
+            var file = event.target.files[0];
+            if (!file) return;
+
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var encryptedData = e.target.result;
+                    var storedPin = localStorage.getItem('app_pin');
+                    var decryptedData = atob(encryptedData);
+                    
+                    if (decryptedData.indexOf(storedPin) !== decryptedData.length - storedPin.length) {
+                        alert('Invalid backup file or wrong PIN');
+                        return;
+                    }
+                    
+                    var jsonData = decryptedData.slice(0, -storedPin.length);
+                    var data = JSON.parse(jsonData);
+                    
+                    appState.customers = data.customers || [];
+                    appState.suppliers = data.suppliers || [];
+                    appState.customerTransactions = data.customerTransactions || [];
+                    appState.supplierTransactions = data.supplierTransactions || [];
+                    appState.supplierPayments = data.supplierPayments || [];
+                    
+                    saveData();
+                    renderCustomers();
+                    renderSuppliers();
+                    
+                    alert('Data restored successfully!');
+                    closeModal('backupModal');
+                } catch (error) {
+                    alert('Failed to restore backup. File may be corrupted.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Render Functions
+        function renderCustomers() {
+            var container = document.getElementById('customersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.customers.length; i++) {
+                var customer = appState.customers[i];
+                var pending = getCustomerPendingAmount(customer.id);
+                var recentTxns = [];
+                
+                for (var j = 0; j < appState.customerTransactions.length; j++) {
+                    var txn = appState.customerTransactions[j];
+                    if (txn.customerId === customer.id) {
+                        recentTxns.push(txn);
+                    }
+                }
+                recentTxns = recentTxns.slice(-3);
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                
+                var transactionHtml = '';
+                if (recentTxns.length > 0) {
+                    for (var k = 0; k < recentTxns.length; k++) {
+                        var txn = recentTxns[k];
+                        transactionHtml += 
+                            '<div class="transaction-item">' +
+                                '<div class="transaction-header">' +
+                                    '<span>' + txn.date + ' (' + txn.day + ') - ' + txn.item + '</span>' +
+                                    '<span class="transaction-amount">' + formatCurrency(txn.totalAmount) + '</span>' +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    txn.unit + ' units × ₹' + txn.pricePerUnit + ' | Received: ' + formatCurrency(txn.receivedAmount) +
+                                '</div>' +
+                            '</div>';
+                    }
+                } else {
+                    transactionHtml = '<div class="transaction-item">No transactions yet</div>';
+                }
+                
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + customer.name + '</div>' +
+                            '<div class="card-phone">📞 ' + customer.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Pending: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue" onclick="showCustomerTransaction(' + JSON.stringify(customer).replace(/"/g, '&quot;') + ')">Add Sale</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green" onclick="showPaymentModal(' + JSON.stringify(customer).replace(/"/g, '&quot;') + ')">Add Payment</button>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="transactions">' +
+                        '<div class="transactions-title">Recent Transactions:</div>' +
+                        transactionHtml +
+                    '</div>';
+                
+                container.appendChild(card);
+            }
+        }
+
+        function renderSuppliers() {
+            var container = document.getElementById('suppliersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.suppliers.length; i++) {
+                var supplier = appState.suppliers[i];
+                var pending = getSupplierPendingAmount(supplier.id);
+                var recentTxns = [];
+                
+                for (var j = 0; j < appState.supplierTransactions.length; j++) {
+                    var txn = appState.supplierTransactions[j];
+                    if (txn.supplierId === supplier.id) {
+                        recentTxns.push(txn);
+                    }
+                }
+                recentTxns = recentTxns.slice(-3);
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                
+                var transactionHtml = '';
+                if (recentTxns.length > 0) {
+                    for (var k = 0; k < recentTxns.length; k++) {
+                        var txn = recentTxns[k];
+                        transactionHtml += 
+                            '<div class="transaction-item">' +
+                                '<div class="transaction-header">' +
+                                    '<span>' + txn.date + ' (' + txn.day + ')</span>' +
+                                    '<span class="transaction-amount">Kalam: ' + formatCurrency(txn.kalam) + '</span>' +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    'Maal: ' + txn.maalInKareet + ' | Rattan: ' + txn.rattan + ' | Total: ' + txn.totalSupply +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    'Bajar Bhav: ₹' + txn.bajarBhav + ' | Jama: ' + formatCurrency(txn.jama) + ' | Baki: ' + formatCurrency(txn.baki) +
+                                '</div>' +
+                            '</div>';
+                    }
+                } else {
+                    transactionHtml = '<div class="transaction-item">No transactions yet</div>';
+                }
+                
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + supplier.name + '</div>' +
+                            '<div class="card-phone">📞 ' + supplier.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Baki: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue" onclick="showSupplierTransaction(' + JSON.stringify(supplier).replace(/"/g, '&quot;') + ')">Add Purchase</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green" onclick="showSupplierPaymentModal(' + JSON.stringify(supplier).replace(/"/g, '&quot;') + ')">Paid</button>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="transactions">' +
+                        '<div class="transactions-title">Recent Transactions:</div>' +
+                        transactionHtml +
+                    '</div>';
+                
+                container.appendChild(card);
+            }
+        }
+
+        // Initialize App
+        function initializeApp() {
+            var storedPin = localStorage.getItem('app_pin');
+            var storedData = localStorage.getItem('business_data');
+            
+            if (storedData) {
+                try {
+                    var data = JSON.parse(storedData);
+                    for (var key in data) {
+                        appState[key] = data[key];
+                    }
+                } catch (e) {
+                    console.log('Error loading stored data');
+                }
+            }
+            
+            if (storedPin) {
+                appState.hasPin = true;
+                showPinEntry();
+            } else {
+                showPinSetup();
+            }
+        }
+
+        });
+
+        // Close modals when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('modal')) {
+                e.target.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+</html>
+                function showAddSupplierModal() {
+            document.getElementById('supplierName').value = '';
+            document.getElementById('supplierPhone').value = '';
+            showModal('addSupplierModal');
+        }
+
+        function setupPin() {
+            var newPin = document.getElementById('newPin').value;
+            var confirmPin = document.getElementById('confirmPin').value;
+            var email = document.getElementById('backupEmail').value;
+            var errorDiv = document.getElementById('setupError');
+            
+            if (newPin.length < 4) {
+                showError(errorDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(errorDiv, 'PINs do not match');
+                return;
+            }
+            
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            if (email) {
+                localStorage.setItem('user_email', email);
+            }
+            
+            appState.hasPin = true;
+            appState.isAuthenticated = true;
+            hideError(errorDiv);
+            showMainApp();
+        }
+
+        function showSettingsModal() {
+            var email = localStorage.getItem('user_email') || '';
+            document.getElementById('settingsEmail').value = email;
+            showModal('settingsModal');
+        }
+
+        function showBackupModal() {
+            showModal('backupModal');
+        }
+
+        // Navigation
+        function switchTab(tab) {
+            appState.activeTab = tab;
+            document.getElementById('customersTab').classList.toggle('hidden', tab !== 'customers');
+            document.getElementById('suppliersTab').classList.toggle('hidden', tab !== 'suppliers');
+            
+            // Update nav tabs
+            var navTabs = document.querySelectorAll('.nav-tab');
+            var bottomBtns = document.querySelectorAll('.bottom-nav-btn');
+            
+            for (var i = 0; i < navTabs.length; i++) {
+                navTabs[i].classList.remove('active');
+                bottomBtns[i].classList.remove('active');
+            }
+            
+            if (tab === 'customers') {
+                navTabs[0].classList.add('active');
+                bottomBtns[0].classList.add('active');
+            } else if (tab === 'suppliers') {
+                navTabs[1].classList.add('active');
+                bottomBtns[1].classList.add('active');
+            }
+        }
+
+        // Customer Functions
+        function addCustomer() {
+            var name = document.getElementById('customerName').value;
+            var phone = document.getElementById('customerPhone').value;
+            
+            if (!name || !phone) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            var newCustomer = {
+                id: Date.now(),
+                name: name,
+                phone: phone
+            };
+            
+            appState.customers.push(newCustomer);
+            saveData();
+            renderCustomers();
+            closeModal('addCustomerModal');
+        }
+
+        function addSupplier() {
+            var name = document.getElementById('supplierName').value;
+            var phone = document.getElementById('supplierPhone').value;
+            
+            if (!name || !phone) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            var newSupplier = {
+                id: Date.now(),
+                name: name,
+                phone: phone
+            };
+            
+            appState.suppliers.push(newSupplier);
+            saveData();
+            renderSuppliers();
+            closeModal('addSupplierModal');
+        }
+
+        function showCustomerTransaction(customer) {
+            appState.currentCustomer = customer;
+            var pending = getCustomerPendingAmount(customer.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('customerTxnDate').value = today;
+            document.getElementById('customerNameDisplay').textContent = customer.name;
+            document.getElementById('customerPendingDisplay').textContent = 'Current Pending: ' + formatCurrency(pending);
+            document.getElementById('customerPendingDisplay').className = pending > 0 ? 'pending-positive' : 'pending-zero';
+            
+            // Reset form
+            document.getElementById('vegetableItem').value = '';
+            document.getElementById('saleUnits').value = '';
+            document.getElementById('salePrice').value = '';
+            document.getElementById('receivedAmount').value = '';
+            document.getElementById('saleTotalBox').classList.add('hidden');
+            
+            showModal('customerTransactionModal');
+        }
+
+        function showSupplierTransaction(supplier) {
+            appState.currentSupplier = supplier;
+            var pending = getSupplierPendingAmount(supplier.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('supplierTxnDate').value = today;
+            document.getElementById('supplierNameDisplay').textContent = supplier.name;
+            document.getElementById('supplierPendingDisplay').textContent = 'Current Baki: ' + formatCurrency(pending);
+            document.getElementById('supplierPendingDisplay').className = pending > 0 ? 'pending-positive' : 'pending-zero';
+            
+            // Reset form
+            document.getElementById('maalInKareet').value = '';
+            document.getElementById('rattan').value = '';
+            document.getElementById('bajarBhav').value = '';
+            document.getElementById('jamaAmount').value = '';
+            document.getElementById('supplierCalculationBox').classList.add('hidden');
+            document.getElementById('bakiBox').classList.add('hidden');
+            
+            showModal('supplierTransactionModal');
+        }
+
+        function showPaymentModal(customer) {
+            appState.currentCustomer = customer;
+            var pending = getCustomerPendingAmount(customer.id);
+            
+            document.getElementById('paymentCustomerName').textContent = customer.name;
+            document.getElementById('paymentCustomerPending').textContent = 'Current Pending: ' + formatCurrency(pending);
+            document.getElementById('paymentAmount').value = '';
+            
+            showModal('paymentModal');
+        }
+
+        function showSupplierPaymentModal(supplier) {
+            appState.currentSupplier = supplier;
+            var pending = getSupplierPendingAmount(supplier.id);
+            var today = new Date().toISOString().split('T')[0];
+            
+            document.getElementById('supplierPaymentName').textContent = supplier.name;
+            document.getElementById('supplierPaymentPending').textContent = 'Current Baki: ' + formatCurrency(pending);
+            document.getElementById('supplierPaymentAmount').value = '';
+            document.getElementById('supplierPaymentDate').value = today;
+            
+            showModal('supplierPaymentModal');
+        }
+
+        function calculateSaleTotal() {
+            var units = parseFloat(document.getElementById('saleUnits').value) || 0;
+            var price = parseFloat(document.getElementById('salePrice').value) || 0;
+            var total = units * price;
+            
+            if (total > 0) {
+                document.getElementById('saleTotalAmount').textContent = formatCurrency(total);
+                document.getElementById('saleTotalBox').classList.remove('hidden');
+            } else {
+                document.getElementById('saleTotalBox').classList.add('hidden');
+            }
+        }
+
+        function calculateSupplierTotal() {
+            var maal = parseFloat(document.getElementById('maalInKareet').value) || 0;
+            var rattan = parseFloat(document.getElementById('rattan').value) || 0;
+            var bhav = parseFloat(document.getElementById('bajarBhav').value) || 0;
+            var jama = parseFloat(document.getElementById('jamaAmount').value) || 0;
+            
+            var totalSupply = maal - rattan;
+            var kalam = totalSupply * bhav;
+            var baki = kalam - jama;
+            
+            if (maal > 0 && bhav > 0) {
+                document.getElementById('totalSupply').textContent = 'Total Supply: ' + totalSupply + ' kareet';
+                document.getElementById('kalamAmount').textContent = 'Kalam: ' + formatCurrency(kalam);
+                document.getElementById('supplierCalculationBox').classList.remove('hidden');
+                
+                if (jama > 0) {
+                    document.getElementById('bakiAmount').textContent = formatCurrency(baki);
+                    document.getElementById('bakiBox').classList.remove('hidden');
+                } else {
+                    document.getElementById('bakiBox').classList.add('hidden');
+                }
+            } else {
+                document.getElementById('supplierCalculationBox').classList.add('hidden');
+                document.getElementById('bakiBox').classList.add('hidden');
+            }
+        }
+
+        function addCustomerTransaction() {
+            var date = document.getElementById('customerTxnDate').value;
+            var item = document.getElementById('vegetableItem').value;
+            var units = parseFloat(document.getElementById('saleUnits').value);
+            var price = parseFloat(document.getElementById('salePrice').value);
+            var received = parseFloat(document.getElementById('receivedAmount').value) || 0;
+            
+            if (!date || !item || !units || !price) {
+                alert('Please fill all required fields');
+                return;
+            }
+            
+            var totalAmount = units * price;
+            
+            var transaction = {
+                id: Date.now(),
+                customerId: appState.currentCustomer.id,
+                date: date,
+                day: getDayName(date),
+                item: item,
+                unit: units,
+                pricePerUnit: price,
+                totalAmount: totalAmount,
+                receivedAmount: received
+            };
+            
+            appState.customerTransactions.push(transaction);
+            saveData();
+            renderCustomers();
+            closeModal('customerTransactionModal');
+        }
+
+        function addSupplierTransaction() {
+            var date = document.getElementById('supplierTxnDate').value;
+            var maal = parseFloat(document.getElementById('maalInKareet').value);
+            var rattan = parseFloat(document.getElementById('rattan').value) || 0;
+            var bhav = parseFloat(document.getElementById('bajarBhav').value);
+            var jama = parseFloat(document.getElementById('jamaAmount').value) || 0;
+            
+            if (!date || !maal || !bhav) {
+                alert('Please fill all required fields');
+                return;
+            }
+            
+            var totalSupply = maal - rattan;
+            var kalam = totalSupply * bhav;
+            var baki = kalam - jama;
+            
+            var transaction = {
+                id: Date.now(),
+                supplierId: appState.currentSupplier.id,
+                date: date,
+                day: getDayName(date),
+                maalInKareet: maal,
+                rattan: rattan,
+                bajarBhav: bhav,
+                totalSupply: totalSupply,
+                kalam: kalam,
+                jama: jama,
+                baki: baki
+            };
+            
+            appState.supplierTransactions.push(transaction);
+            saveData();
+            renderSuppliers();
+            closeModal('supplierTransactionModal');
+        }
+
+        function addPayment() {
+            var amount = parseFloat(document.getElementById('paymentAmount').value);
+            
+            if (!amount || amount <= 0) {
+                alert('Please enter a valid payment amount');
+                return;
+            }
+            
+            // Find oldest pending transaction
+            var pendingTxns = [];
+            for (var i = 0; i < appState.customerTransactions.length; i++) {
+                var txn = appState.customerTransactions[i];
+                if (txn.customerId === appState.currentCustomer.id && txn.receivedAmount < txn.totalAmount) {
+                    pendingTxns.push(txn);
+                }
+            }
+            
+            if (pendingTxns.length > 0) {
+                // Sort by date
+                pendingTxns.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+                var txn = pendingTxns[0];
+                var remaining = txn.totalAmount - txn.receivedAmount;
+                var paymentToApply = Math.min(amount, remaining);
+                
+                // Update transaction
+                for (var j = 0; j < appState.customerTransactions.length; j++) {
+                    if (appState.customerTransactions[j].id === txn.id) {
+                        appState.customerTransactions[j].receivedAmount += paymentToApply;
+                        break;
+                    }
+                }
+            }
+            
+            saveData();
+            renderCustomers();
+            closeModal('paymentModal');
+        }
+
+        function addSupplierPayment() {
+            var amount = parseFloat(document.getElementById('supplierPaymentAmount').value);
+            var date = document.getElementById('supplierPaymentDate').value;
+            
+            if (!amount || amount <= 0) {
+                alert('Please enter a valid payment amount');
+                return;
+            }
+            
+            if (!date) {
+                alert('Please select payment date');
+                return;
+            }
+            
+            // Find pending transactions
+            var pendingTxns = [];
+            for (var i = 0; i < appState.supplierTransactions.length; i++) {
+                var txn = appState.supplierTransactions[i];
+                if (txn.supplierId === appState.currentSupplier.id && txn.baki > 0) {
+                    pendingTxns.push(txn);
+                }
+            }
+            
+            if (pendingTxns.length > 0) {
+                // Sort by date
+                pendingTxns.sort(function(a, b) { return new Date(a.date) - new Date(b.date); });
+                
+                var remainingPayment = amount;
+                for (var i = 0; i < pendingTxns.length && remainingPayment > 0; i++) {
+                    var txn = pendingTxns[i];
+                    var paymentToApply = Math.min(remainingPayment, txn.baki);
+                    
+                    // Update transaction
+                    for (var j = 0; j < appState.supplierTransactions.length; j++) {
+                        if (appState.supplierTransactions[j].id === txn.id) {
+                            appState.supplierTransactions[j].jama += paymentToApply;
+                            appState.supplierTransactions[j].baki -= paymentToApply;
+                            break;
+                        }
+                    }
+                    remainingPayment -= paymentToApply;
+                }
+            }
+            
+            // Record payment
+            var payment = {
+                id: Date.now(),
+                supplierId: appState.currentSupplier.id,
+                amount: amount,
+                date: date,
+                day: getDayName(date)
+            };
+            
+            appState.supplierPayments.push(payment);
+            saveData();
+            renderSuppliers();
+            closeModal('supplierPaymentModal');
+        }
+
+        function changePin() {
+            var newPin = document.getElementById('newPinSettings').value;
+            var confirmPin = document.getElementById('confirmPinSettings').value;
+            var messageDiv = document.getElementById('settingsMessage');
+            
+            if (newPin.length < 4) {
+                showError(messageDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(messageDiv, 'PINs do not match');
+                return;
+            }
+            
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            showSuccess(messageDiv, 'PIN changed successfully!');
+            document.getElementById('newPinSettings').value = '';
+            document.getElementById('confirmPinSettings').value = '';
+            
+            setTimeout(function() {
+                hideError(messageDiv);
+                closeModal('settingsModal');
+            }, 2000);
+        }
+
+        function showSuccess(element, message) {
+            element.textContent = message;
+            element.classList.remove('hidden', 'error-message');
+            element.classList.add('success-message');
+        }
+
+        function saveEmail() {
+            var email = document.getElementById('settingsEmail').value;
+            var messageDiv = document.getElementById('settingsMessage');
+            
+            if (email) {
+                localStorage.setItem('user_email', email);
+                showSuccess(messageDiv, 'Email saved successfully!');
+                setTimeout(function() { hideError(messageDiv); }, 2000);
+            }
+        }
+
+        function createBackup() {
+            var data = {
+                customers: appState.customers,
+                suppliers: appState.suppliers,
+                customerTransactions: appState.customerTransactions,
+                supplierTransactions: appState.supplierTransactions,
+                supplierPayments: appState.supplierPayments,
+                backupDate: new Date().toISOString()
+            };
+            
+            var storedPin = localStorage.getItem('app_pin');
+            var encryptedData = btoa(JSON.stringify(data) + storedPin);
+            
+            var blob = new Blob([encryptedData], { type: 'text/plain' });
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = 'vegetable_business_backup_' + new Date().toISOString().split('T')[0] + '.vbak';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            
+            var email = localStorage.getItem('user_email');
+            if (email) {
+                alert('Backup created! In a real app, this would be emailed to: ' + email);
+            } else {
+                alert('Backup file downloaded successfully!');
+            }
+            
+            closeModal('backupModal');
+        }
+
+        function restoreFromBackup(event) {
+            var file = event.target.files[0];
+            if (!file) return;
+
+            var reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    var encryptedData = e.target.result;
+                    var storedPin = localStorage.getItem('app_pin');
+                    var decryptedData = atob(encryptedData);
+                    
+                    if (decryptedData.indexOf(storedPin) !== decryptedData.length - storedPin.length) {
+                        alert('Invalid backup file or wrong PIN');
+                        return;
+                    }
+                    
+                    var jsonData = decryptedData.slice(0, -storedPin.length);
+                    var data = JSON.parse(jsonData);
+                    
+                    appState.customers = data.customers || [];
+                    appState.suppliers = data.suppliers || [];
+                    appState.customerTransactions = data.customerTransactions || [];
+                    appState.supplierTransactions = data.supplierTransactions || [];
+                    appState.supplierPayments = data.supplierPayments || [];
+                    
+                    saveData();
+                    renderCustomers();
+                    renderSuppliers();
+                    
+                    alert('Data restored successfully!');
+                    closeModal('backupModal');
+                } catch (error) {
+                    alert('Failed to restore backup. File may be corrupted.');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Render Functions
+        function renderCustomers() {
+            var container = document.getElementById('customersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.customers.length; i++) {
+                var customer = appState.customers[i];
+                var pending = getCustomerPendingAmount(customer.id);
+                var recentTxns = [];
+                
+                // Get recent transactions
+                for (var j = 0; j < appState.customerTransactions.length; j++) {
+                    var txn = appState.customerTransactions[j];
+                    if (txn.customerId === customer.id) {
+                        recentTxns.push(txn);
+                    }
+                }
+                recentTxns = recentTxns.slice(-3); // Last 3 transactions
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                
+                var transactionHtml = '';
+                if (recentTxns.length > 0) {
+                    for (var k = 0; k < recentTxns.length; k++) {
+                        var txn = recentTxns[k];
+                        transactionHtml += 
+                            '<div class="transaction-item">' +
+                                '<div class="transaction-header">' +
+                                    '<span>' + txn.date + ' (' + txn.day + ') - ' + txn.item + '</span>' +
+                                    '<span class="transaction-amount">' + formatCurrency(txn.totalAmount) + '</span>' +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    txn.unit + ' units × ₹' + txn.pricePerUnit + ' | Received: ' + formatCurrency(txn.receivedAmount) +
+                                '</div>' +
+                            '</div>';
+                    }
+                } else {
+                    transactionHtml = '<div class="transaction-item">No transactions yet</div>';
+                }
+                
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + customer.name + '</div>' +
+                            '<div class="card-phone">📞 ' + customer.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Pending: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue" onclick="showCustomerTransaction(' + JSON.stringify(customer).replace(/"/g, '&quot;') + ')">Add Sale</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green" onclick="showPaymentModal(' + JSON.stringify(customer).replace(/"/g, '&quot;') + ')">Add Payment</button>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="transactions">' +
+                        '<div class="transactions-title">Recent Transactions:</div>' +
+                        transactionHtml +
+                    '</div>';
+                
+                container.appendChild(card);
+            }
+        }
+
+        function renderSuppliers() {
+            var container = document.getElementById('suppliersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.suppliers.length; i++) {
+                var supplier = appState.suppliers[i];
+                var pending = getSupplierPendingAmount(supplier.id);
+                var recentTxns = [];
+                
+                // Get recent transactions
+                for (var j = 0; j < appState.supplierTransactions.length; j++) {
+                    var txn = appState.supplierTransactions[j];
+                    if (txn.supplierId === supplier.id) {
+                        recentTxns.push(txn);
+                    }
+                }
+                recentTxns = recentTxns.slice(-3); // Last 3 transactions
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                
+                var transactionHtml = '';
+                if (recentTxns.length > 0) {
+                    for (var k = 0; k < recentTxns.length; k++) {
+                        var txn = recentTxns[k];
+                        transactionHtml += 
+                            '<div class="transaction-item">' +
+                                '<div class="transaction-header">' +
+                                    '<span>' + txn.date + ' (' + txn.day + ')</span>' +
+                                    '<span class="transaction-amount">Kalam: ' + formatCurrency(txn.kalam) + '</span>' +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    'Maal: ' + txn.maalInKareet + ' | Rattan: ' + txn.rattan + ' | Total: ' + txn.totalSupply +
+                                '</div>' +
+                                '<div class="transaction-details">' +
+                                    'Bajar Bhav: ₹' + txn.bajarBhav + ' | Jama: ' + formatCurrency(txn.jama) + ' | Baki: ' + formatCurrency(txn.baki) +
+                                '</div>' +
+                            '</div>';
+                    }
+                } else {
+                    transactionHtml = '<div class="transaction-item">No transactions yet</div>';
+                }
+                
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + supplier.name + '</div>' +
+                            '<div class="card-phone">📞 ' + supplier.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Baki: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue" onclick="showSupplierTransaction(' + JSON.stringify(supplier).replace(/"/g, '&quot;') + ')">Add Purchase</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green" onclick="showSupplierPaymentModal(' + JSON.stringify(supplier).replace(/"/g, '&quot;') + ')">Paid</button>' : '') +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="transactions">' +
+                        '<div class="transactions-title">Recent Transactions:</div>' +
+                        transactionHtml +
+                    '</div>';
+                
+                container.appendChild(card);
+            }
+            <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#22c55e">
+    <meta name="description" content="Vegetable Wholesale Business Management App">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Veg Wholesale">
+    <link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiVmVnZXRhYmxlIFdob2xlc2FsZSBCdXNpbmVzcyIsInNob3J0X25hbWUiOiJWZWcgV2hvbGVzYWxlIiwic3RhcnRfdXJsIjoiLyIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwiYmFja2dyb3VuZF9jb2xvciI6IiNmZmZmZmYiLCJ0aGVtZV9jb2xvciI6IiMyMmM1NWUiLCJpY29ucyI6W3sic3JjIjoiZGF0YTppbWFnZS9zdmcreG1sO2Jhc2U2NCxQSE4yWnlCNGJXeHVjejBpYUhSMGNEb3ZMM2QzZHk1M015NXZjbWN2TWpBd01DOXpkbWNpSUhacFpYZENiM2c5SWpBZ01DQXhNakFnTVRJd0lqNDhjbVZqZENCM2FXUjBhRDBpTVRJd0lpQm9aV2xuYUhROUlqRXlNQ0lnY25nOUlqRXdJaUJtYVd4c1BTSWpNakpqTlRWbElpOCtQSFJsZUhRZ2VEMGlOakFpSUhrOUlqWXdJaUJtYjI1MExXWmhiV2xzZVQwaVFYSnBZV3dpSUdadmJuUXRjMmw2WlQwaU16QWlJSFJsZUhRdFlXNWphRzl5UFNKdGFXUmtaR1VpSUdacGJHdzlJaU5tWm1abVptWWlQanBkUEM5MFpYaDBQand2YzNablBnPT0iLCJ0eXBlIjoiaW1hZ2Uvc3ZnK3htbCIsInNpemVzIjoiNTEyeDUxMiJ9XX0=">
+    <title>Vegetable Wholesale Business</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        // Close modals when clicking outside
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('modal')) {
+                e.target.classList.remove('show');
+            }
+        });
+    </script>
+</body>
+</html>
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 100%;
+            margin: 0 auto;
+            background: white;
+            min-height: 100vh;
+        }
+        
+        /* PIN Authentication Screens */
+        .auth-screen {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #4ade80 0%, #22c55e 100%);
+            padding: 20px;
+        }
+        
+        .auth-card {
+            background: white;
+            border-radius: 16px;
+            padding: 30px 20px;
+            width: 100%;
+            max-width: 400px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        .auth-icon {
+            width: 80px;
+            height: 80px;
+            background: #22c55e;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 36px;
+            color: white;
+        }
+        
+        .auth-title {
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #1f2937;
+        }
+        
+        .auth-subtitle {
+            color: #6b7280;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+            color: #374151;
+            font-size: 14px;
+        }
+        
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-input:focus {
+            outline: none;
+            border-color: #22c55e;
+        }
+        
+        .pin-input {
+            text-align: center;
+            font-size: 24px;
+            letter-spacing: 8px;
+            font-weight: bold;
+        }
+        
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+        
+        .btn-primary {
+            background: #22c55e;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #16a34a;
+            transform: translateY(-2px);
+        }
+        
+        .btn-secondary {
+            background: #6b7280;
+            color: white;
+        }
+        
+        .error-message {
+            color: #ef4444;
+            font-size: 14px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        .success-message {
+            color: #22c55e;
+            font-size: 14px;
+            text-align: center;
+            margin-top: 10px;
+        }
+        
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+            padding: 20px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-content {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header-title {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        
+        .header-subtitle {
+            font-size: 12px;
+            opacity: 0.9;
+            margin-top: 2px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .header-btn {
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        /* Navigation Tabs */
+        .nav-tabs {
+            display: flex;
+            background: white;
+            border-bottom: 1px solid #e5e7eb;
+            position: sticky;
+            top: 80px;
+            z-index: 99;
+        }
+        
+        .nav-tab {
+            flex: 1;
+            padding: 16px 8px;
+            background: none;
+            border: none;
+            font-size: 14px;
+            font-weight: 500;
+            color: #6b7280;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        
+        .nav-tab.active {
+            color: #22c55e;
+            border-bottom-color: #22c55e;
+            background: #f0fdf4;
+        }
+        
+        /* Main Content */
+        .content {
+            padding: 20px;
+            padding-bottom: 100px;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .section-title {
+            font-size: 20px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .add-btn {
+            background: #22c55e;
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: background 0.3s;
+        }
+        
+        .add-btn:hover {
+            background: #16a34a;
+        }
+        
+        /* Cards */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid #e5e7eb;
+        }
+        
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 16px;
+        }
+        
+        .card-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1f2937;
+            margin-bottom: 4px;
+        }
+        
+        .card-phone {
+            color: #6b7280;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .pending-amount {
+            font-weight: bold;
+            font-size: 16px;
+        }
+        
+        .pending-positive {
+            color: #ef4444;
+        }
+        
+        .pending-zero {
+            color: #22c55e;
+        }
+        
+        .card-actions {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-blue {
+            background: #3b82f6;
+            color: white;
+        }
+        
+        .btn-green {
+            background: #22c55e;
+            color: white;
+        }
+        
+        /* Transactions */
+        .transactions {
+            margin-top: 16px;
+        }
+        
+        .transactions-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #374151;
+        }
+        
+        .transaction-item {
+            background: #f9fafb;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .transaction-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        
+        .transaction-amount {
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .transaction-details {
+            color: #6b7280;
+            font-size: 12px;
+        }
+        
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+            padding: 20px;
+            overflow-y: auto;
+        }
+        
+        .modal.show {
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding-top: 20px;
+        }
+        
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+        
+        @keyframes slideUp {
+            from { transform: translateY(50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 20px 0;
+            margin-bottom: 20px;
+        }
+        
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1f2937;
+        }
+        
+        .close-btn {
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+            color: #6b7280;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-body {
+            padding: 0 20px 20px;
+        }
+        
+        .input-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        
+        .calculation-box {
+            background: #f0f9ff;
+            border: 1px solid #bae6fd;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+        
+        .calculation-title {
+            font-weight: bold;
+            color: #0c4a6e;
+            margin-bottom: 4px;
+        }
+        
+        .calculation-value {
+            color: #0369a1;
+            font-size: 16px;
+        }
+        
+        .modal-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 20px;
+        }
+        
+        .info-box {
+            background: #fef3c7;
+            border: 1px solid #f59e0b;
+            border-radius: 8px;
+            padding: 12px;
+            margin: 12px 0;
+        }
+        
+        .info-text {
+            color: #92400e;
+            font-size: 13px;
+        }
+        
+        /* Bottom Navigation for Mobile */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            border-top: 1px solid #e5e7eb;
+            padding: 12px;
+            display: flex;
+            justify-content: space-around;
+            z-index: 100;
+        }
+        
+        .bottom-nav-btn {
+            background: none;
+            border: none;
+            padding: 8px;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #6b7280;
+            transition: color 0.3s;
+        }
+        
+        .bottom-nav-btn.active {
+            color: #22c55e;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 480px) {
+            .header {
+                padding: 16px;
+            }
+            
+            .content {
+                padding: 16px;
+            }
+            
+            .card {
+                padding: 16px;
+            }
+            
+            .modal-content {
+                margin: 10px;
+                width: calc(100% - 20px);
+            }
+            
+            .input-group {
+                grid-template-columns: 1fr;
+            }
+            
+            .modal-actions {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        /* Hide/Show Elements */
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- PIN Setup Screen -->
+    <div id="pinSetupScreen" class="auth-screen">
+        <div class="auth-card">
+            <div class="auth-icon">🔒</div>
+            <h1 class="auth-title">Setup Security PIN</h1>
+            <p class="auth-subtitle">Create a 4-6 digit PIN to secure your business data</p>
+            
+            <div class="form-group">
+                <label class="form-label">Create PIN</label>
+                <input type="password" id="newPin" class="form-input pin-input" placeholder="••••" maxlength="6">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Confirm PIN</label>
+                <input type="password" id="confirmPin" class="form-input pin-input" placeholder="••••" maxlength="6">
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Email for Backup</label>
+                <input type="email" id="backupEmail" class="form-input" placeholder="Enter email for auto-backup">
+            </div>
+            
+            <div id="setupError" class="error-message hidden"></div>
+            
+            <button class="btn btn-primary" onclick="setupPin()">Setup PIN & Start App</button>
+        </div>
+    </div>
+    
+    <!-- PIN Entry Screen -->
+    <div id="pinEntryScreen" class="auth-screen hidden">
+        <div class="auth-card">
+            <div class="auth-icon">🔐</div>
+            <h1 class="auth-title">Enter PIN</h1>
+            <p class="auth-subtitle">Enter your PIN to access the app</p>
+            
+            <div class="form-group">
+                <label class="form-label">PIN</label>
+                <input type="password" id="entryPin" class="form-input pin-input" placeholder="••••" maxlength="6">
+            </div>
+            
+            <div id="entryError" class="error-message hidden"></div>
+            
+            <button class="btn btn-primary" onclick="verifyPin()">Unlock App</button>
+            <button class="btn btn-secondary" onclick="showForgotPinScreen()" style="margin-top: 10px;">Forgot PIN?</button>
+        </div>
+    </div>
+    
+    <!-- Forgot PIN Screen -->
+    <div id="forgotPinScreen" class="auth-screen hidden">
+        <div class="auth-card">
+            <div class="auth-icon">🔑</div>
+            <h1 class="auth-title">Forgot PIN</h1>
+            <p class="auth-subtitle">We'll send an OTP to your registered contact</p>
+            
+            <div id="contactSection">
+                <div class="form-group">
+                    <label class="form-label">Registered Phone Number</label>
+                    <input type="tel" id="forgotPinPhone" class="form-input" placeholder="Enter your phone number" readonly>
+                </div>
+                
+                <div id="forgotPinError" class="error-message hidden"></div>
+                
+                <button class="btn btn-primary" onclick="sendOTP()">Send OTP</button>
+                <button class="btn btn-secondary" onclick="backToLogin()">Back to Login</button>
+            </div>
+            
+            <div id="otpSection" class="hidden">
+                <div class="form-group">
+                    <label class="form-label">Enter OTP</label>
+                    <input type="text" id="otpInput" class="form-input pin-input" placeholder="••••••" maxlength="6">
+                    <p style="font-size: 12px; color: #6b7280; margin-top: 8px;">OTP sent to: <span id="maskedPhone"></span></p>
+                </div>
+                
+                <div id="otpError" class="error-message hidden"></div>
+                
+                <button class="btn btn-primary" onclick="verifyOTP()">Verify OTP</button>
+                <button class="btn btn-secondary" onclick="resendOTP()">Resend OTP</button>
+            </div>
+            
+            <div id="resetPinSection" class="hidden">
+                <div class="form-group">
+                    <label class="form-label">New PIN</label>
+                    <input type="password" id="resetNewPin" class="form-input pin-input" placeholder="••••" maxlength="6">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Confirm New PIN</label>
+                    <input type="password" id="resetConfirmPin" class="form-input pin-input" placeholder="••••" maxlength="6">
+                </div>
+                
+                <div id="resetPinError" class="error-message hidden"></div>
+                
+                <button class="btn btn-primary" onclick="resetPin()">Reset PIN</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main App -->
+    <div id="mainApp" class="container hidden">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div>
+                    <div class="header-title">Vegetable Wholesale</div>
+                    <div class="header-subtitle">Secure Business Management</div>
+                </div>
+                <div class="header-actions">
+                    <button class="header-btn" onclick="showBackupModal()">
+                        💾 Backup
+                    </button>
+                    <button class="header-btn" onclick="showSettingsModal()">
+                        ⚙️ Settings
+                    </button>
+                </div>
+            </div>
+        </header>
+        
+        <!-- Navigation Tabs -->
+        <div class="nav-tabs">
+            <button class="nav-tab active" onclick="switchTab('customers')">
+                👥 Customers
+            </button>
+            <button class="nav-tab" onclick="switchTab('suppliers')">
+                🚛 Suppliers
+            </button>
+        </div>
+        
+        <!-- Main Content -->
+        <main class="content">
+            <!-- Customers Tab -->
+            <div id="customersTab">
+                <div class="section-header">
+                    <h2 class="section-title">Customer Management</h2>
+                    <button class="add-btn" onclick="showAddCustomerModal()">
+                        ➕ Add Customer
+                    </button>
+                </div>
+                
+                <div id="customersList">
+                    <!-- Customer cards will be populated here -->
+                </div>
+            </div>
+            
+            <!-- Suppliers Tab -->
+            <div id="suppliersTab" class="hidden">
+                <div class="section-header">
+                    <h2 class="section-title">Supplier Management</h2>
+                    <button class="add-btn" onclick="showAddSupplierModal()">
+                        ➕ Add Supplier
+                    </button>
+                </div>
+                
+                <div id="suppliersList">
+                    <!-- Supplier cards will be populated here -->
+                </div>
+            </div>
+        </main>
+        
+        <!-- Bottom Navigation -->
+        <div class="bottom-nav">
+            <button class="bottom-nav-btn active" onclick="switchTab('customers')">
+                👥<br>Customers
+            </button>
+            <button class="bottom-nav-btn" onclick="switchTab('suppliers')">
+                🚛<br>Suppliers
+            </button>
+            <button class="bottom-nav-btn" onclick="showBackupModal()">
+                💾<br>Backup
+            </button>
+            <button class="bottom-nav-btn" onclick="showSettingsModal()">
+                ⚙️<br>Settings
+            </button>
+        </div>
+    </div>
+    
+    <!-- All Modals -->
+    <div id="addCustomerModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Customer</h3>
+                <button class="close-btn" onclick="closeModal('addCustomerModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Customer Name</label>
+                    <input type="text" id="customerName" class="form-input" placeholder="Enter customer name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Phone Number</label>
+                    <input type="tel" id="customerPhone" class="form-input" placeholder="Enter phone number">
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addCustomer()">Add Customer</button>
+                    <button class="btn btn-secondary" onclick="closeModal('addCustomerModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="addSupplierModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add New Supplier</h3>
+                <button class="close-btn" onclick="closeModal('addSupplierModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Supplier Name</label>
+                    <input type="text" id="supplierName" class="form-input" placeholder="Enter supplier name">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Phone Number</label>
+                    <input type="tel" id="supplierPhone" class="form-input" placeholder="Enter phone number">
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addSupplier()">Add Supplier</button>
+                    <button class="btn btn-secondary" onclick="closeModal('addSupplierModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="customerTransactionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Customer Sale</h3>
+                <button class="close-btn" onclick="closeModal('customerTransactionModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input type="date" id="customerTxnDate" class="form-input">
+                </div>
+                <div id="selectedCustomerInfo" class="calculation-box">
+                    <div class="calculation-title">Selected Customer</div>
+                    <div id="customerNameDisplay"></div>
+                    <div id="customerPendingDisplay"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Vegetable Item</label>
+                    <input type="text" id="vegetableItem" class="form-input" placeholder="e.g., Tomato, Onion">
+                </div>
+                <div class="input-group">
+                    <div class="form-group">
+                        <label class="form-label">Units</label>
+                        <input type="number" id="saleUnits" class="form-input" placeholder="Quantity" oninput="calculateSaleTotal()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Price per Unit</label>
+                        <input type="number" id="salePrice" class="form-input" placeholder="₹ per unit" oninput="calculateSaleTotal()">
+                    </div>
+                </div>
+                <div id="saleTotalBox" class="calculation-box hidden">
+                    <div class="calculation-title">Total Amount</div>
+                    <div id="saleTotalAmount" class="calculation-value"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Received Amount</label>
+                    <input type="number" id="receivedAmount" class="form-input" placeholder="Amount received now">
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addCustomerTransaction()">Add Sale</button>
+                    <button class="btn btn-secondary" onclick="closeModal('customerTransactionModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="supplierTransactionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Supplier Purchase</h3>
+                <button class="close-btn" onclick="closeModal('supplierTransactionModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Date</label>
+                    <input type="date" id="supplierTxnDate" class="form-input">
+                </div>
+                <div id="selectedSupplierInfo" class="calculation-box">
+                    <div class="calculation-title">Selected Supplier</div>
+                    <div id="supplierNameDisplay"></div>
+                    <div id="supplierPendingDisplay"></div>
+                </div>
+                <div class="input-group">
+                    <div class="form-group">
+                        <label class="form-label">Maal in Kareet</label>
+                        <input type="number" id="maalInKareet" class="form-input" placeholder="Total received" oninput="calculateSupplierTotal()">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Rattan (Return)</label>
+                        <input type="number" id="rattan" class="form-input" placeholder="Bad material" oninput="calculateSupplierTotal()">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Bajar Bhav (Price per Kareet)</label>
+                    <input type="number" id="bajarBhav" class="form-input" placeholder="₹ per kareet" oninput="calculateSupplierTotal()">
+                </div>
+                <div id="supplierCalculationBox" class="calculation-box hidden">
+                    <div class="calculation-title">Calculations</div>
+                    <div id="totalSupply" class="calculation-value"></div>
+                    <div id="kalamAmount" class="calculation-value"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Jama (Amount Paid)</label>
+                    <input type="number" id="jamaAmount" class="form-input" placeholder="Amount paid now" oninput="calculateSupplierTotal()">
+                </div>
+                <div id="bakiBox" class="calculation-box hidden">
+                    <div class="calculation-title">Baki (Remaining)</div>
+                    <div id="bakiAmount" class="calculation-value"></div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addSupplierTransaction()">Add Purchase</button>
+                    <button class="btn btn-secondary" onclick="closeModal('supplierTransactionModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="paymentModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Add Payment</h3>
+                <button class="close-btn" onclick="closeModal('paymentModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="paymentCustomerInfo" class="calculation-box">
+                    <div class="calculation-title">Customer</div>
+                    <div id="paymentCustomerName"></div>
+                    <div id="paymentCustomerPending"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payment Amount</label>
+                    <input type="number" id="paymentAmount" class="form-input" placeholder="Enter amount received">
+                </div>
+                <div class="info-box">
+                    <div class="info-text">💡 Payment will be applied to the oldest pending transaction first.</div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addPayment()">Record Payment</button>
+                    <button class="btn btn-secondary" onclick="closeModal('paymentModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="supplierPaymentModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Record Supplier Payment</h3>
+                <button class="close-btn" onclick="closeModal('supplierPaymentModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div id="supplierPaymentInfo" class="calculation-box">
+                    <div class="calculation-title">Supplier</div>
+                    <div id="supplierPaymentName"></div>
+                    <div id="supplierPaymentPending"></div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payment Amount</label>
+                    <input type="number" id="supplierPaymentAmount" class="form-input" placeholder="Enter amount you paid to supplier">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Payment Date</label>
+                    <input type="date" id="supplierPaymentDate" class="form-input">
+                </div>
+                <div class="info-box">
+                    <div class="info-text">💡 This payment will reduce your Baki (pending amount) to the supplier.</div>
+                </div>
+                <div class="modal-actions">
+                    <button class="btn btn-primary" onclick="addSupplierPayment()">Record Payment</button>
+                    <button class="btn btn-secondary" onclick="closeModal('supplierPaymentModal')">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="settingsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Settings</h3>
+                <button class="close-btn" onclick="closeModal('settingsModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">Change PIN</label>
+                    <input type="password" id="newPinSettings" class="form-input" placeholder="New PIN (4-6 digits)" maxlength="6">
+                    <input type="password" id="confirmPinSettings" class="form-input" placeholder="Confirm New PIN" maxlength="6" style="margin-top: 8px;">
+                    <button class="btn btn-primary" onclick="changePin()" style="margin-top: 8px;">Change PIN</button>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Email for Backup</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="email" id="settingsEmail" class="form-input" placeholder="Enter backup email" style="flex: 1;">
+                        <button class="btn btn-primary" onclick="saveEmail()" style="min-width: 60px;">Save</button>
+                    </div>
+                </div>
+                <div id="settingsMessage" class="hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="backupModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="modal-title">Backup & Restore</h3>
+                <button class="close-btn" onclick="closeModal('backupModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">📥 Create Backup</label>
+                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">Download encrypted backup of all your business data</p>
+                    <button class="btn btn-primary" onclick="createBackup()">Download Backup File</button>
+                </div>
+                
+                <div class="form-group" style="margin-top: 24px;">
+                    <label class="form-label">📤 Restore Data</label>
+                    <p style="font-size: 13px; color: #6b7280; margin-bottom: 12px;">Upload backup file to restore your data</p>
+                    <input type="file" id="backupFile" accept=".vbak" class="form-input" onchange="restoreFromBackup(event)">
+                </div>
+                
+                <div class="info-box" style="margin-top: 16px;">
+                    <div class="info-text">🔒 <strong>Security:</strong> Backup files are encrypted with your PIN. Only you can restore them with the correct PIN.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // App State
+        var appState = {
+            isAuthenticated: false,
+            hasPin: false,
+            activeTab: 'customers',
+            currentCustomer: null,
+            currentSupplier: null,
+            customers: [
+                { id: 1, name: 'Ramesh Traders', phone: '9876543210' }
+            ],
+            suppliers: [
+                { id: 1, name: 'Kishan Farm', phone: '9123456789' }
+            ],
+            customerTransactions: [
+                { 
+                    id: 1, 
+                    customerId: 1, 
+                    date: '2024-01-15', 
+                    item: 'Tomato', 
+                    unit: 10, 
+                    pricePerUnit: 50, 
+                    totalAmount: 500, 
+                    receivedAmount: 300 
+                }
+            ],
+            supplierTransactions: [
+                { 
+                    id: 1, 
+                    supplierId: 1, 
+                    date: '2024-01-15', 
+                    maalInKareet: 100, 
+                    rattan: 5, 
+                    bajarBhav: 45, 
+                    kalam: 4275, 
+                    jama: 4000, 
+                    baki: 275 
+                }
+            ],
+            supplierPayments: []
+        };
+
+        // Initialize App
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+
+        function initializeApp() {
+            var storedPin = localStorage.getItem('app_pin');
+            var storedData = localStorage.getItem('business_data');
+            var storedEmail = localStorage.getItem('user_email');
+            
+            if (storedData) {
+                try {
+                    var data = JSON.parse(storedData);
+                    for (var key in data) {
+                        appState[key] = data[key];
+                    }
+                } catch (e) {
+                    console.log('Error loading stored data');
+                }
+            }
+            
+            if (storedPin) {
+                appState.hasPin = true;
+                showPinEntry();
+            } else {
+                showPinSetup();
+            }
+        }
+
+        // PIN Management Functions
+        function showPinSetup() {
+            document.getElementById('pinSetupScreen').classList.remove('hidden');
+            document.getElementById('pinEntryScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        function showPinEntry() {
+            document.getElementById('pinSetupScreen').classList.add('hidden');
+            document.getElementById('pinEntryScreen').classList.remove('hidden');
+            document.getElementById('mainApp').classList.add('hidden');
+        }
+
+        function showMainApp() {
+            document.getElementById('pinSetupScreen').classList.add('hidden');
+            document.getElementById('pinEntryScreen').classList.add('hidden');
+            document.getElementById('mainApp').classList.remove('hidden');
+            renderCustomers();
+            renderSuppliers();
+        }
+
+        function setupPin() {
+            var newPin = document.getElementById('newPin').value;
+            var confirmPin = document.getElementById('confirmPin').value;
+            var email = document.getElementById('backupEmail').value;
+            var errorDiv = document.getElementById('setupError');
+            
+            if (newPin.length < 4) {
+                showError(errorDiv, 'PIN must be at least 4 digits');
+                return;
+            }
+            
+            if (newPin !== confirmPin) {
+                showError(errorDiv, 'PINs do not match');
+                return;
+            }
+            
+            var hashedPin = btoa(newPin);
+            localStorage.setItem('app_pin', hashedPin);
+            
+            if (email) {
+                localStorage.setItem('user_email', email);
+            }
+            
+            appState.hasPin = true;
+            appState.isAuthenticated = true;
+            hideError(errorDiv);
+            showMainApp();
+        }
+
+        function verifyPin() {
+            var enteredPin = document.getElementById('entryPin').value;
+            var storedPin = localStorage.getItem('app_pin');
+            var errorDiv = document.getElementById('entryError');
+            var hashedEnteredPin = btoa(enteredPin);
+            
+            if (hashedEnteredPin === storedPin) {
+                appState.isAuthenticated = true;
+                hideError(errorDiv);
+                document.getElementById('entryPin').value = '';
+                showMainApp();
+            } else {
+                showError(errorDiv, 'Incorrect PIN. Please try again.');
+                document.getElementById('entryPin').value = '';
+            }
+        }
+
+        // Helper Functions
+        function formatCurrency(amount) {
+            return '₹' + amount.toLocaleString();
+        }
+
+        function getDayName(dateString) {
+            var days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            var date = new Date(dateString);
+            return days[date.getDay()];
+        }
+
+        function getCustomerPendingAmount(customerId) {
+            var total = 0;
+            for (var i = 0; i < appState.customerTransactions.length; i++) {
+                var txn = appState.customerTransactions[i];
+                if (txn.customerId === customerId) {
+                    total += (txn.totalAmount - txn.receivedAmount);
+                }
+            }
+            return total;
+        }
+
+        function getSupplierPendingAmount(supplierId) {
+            var total = 0;
+            for (var i = 0; i < appState.supplierTransactions.length; i++) {
+                var txn = appState.supplierTransactions[i];
+                if (txn.supplierId === supplierId) {
+                    total += txn.baki;
+                }
+            }
+            return total;
+        }
+
+        function saveData() {
+            localStorage.setItem('business_data', JSON.stringify(appState));
+        }
+
+        function showError(element, message) {
+            element.textContent = message;
+            element.classList.remove('hidden');
+            element.classList.add('error-message');
+        }
+
+        function hideError(element) {
+            element.classList.add('hidden');
+        }
+
+        // Modal Functions
+        function showModal(modalId) {
+            document.getElementById(modalId).classList.add('show');
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('show');
+        }
+
+        function showAddCustomerModal() {
+            document.getElementById('customerName').value = '';
+            document.getElementById('customerPhone').value = '';
+            showModal('addCustomerModal');
+        }
+
+        function showAddSupplierModal() {
+            showModal('addSupplierModal');
+        }
+
+        function showSettingsModal() {
+            showModal('settingsModal');
+        }
+
+        function showBackupModal() {
+            showModal('backupModal');
+        }
+
+        // Navigation
+        function switchTab(tab) {
+            appState.activeTab = tab;
+            document.getElementById('customersTab').classList.toggle('hidden', tab !== 'customers');
+            document.getElementById('suppliersTab').classList.toggle('hidden', tab !== 'suppliers');
+        }
+
+        // Customer Functions
+        function addCustomer() {
+            var name = document.getElementById('customerName').value;
+            var phone = document.getElementById('customerPhone').value;
+            
+            if (!name || !phone) {
+                alert('Please fill all fields');
+                return;
+            }
+            
+            var newCustomer = {
+                id: Date.now(),
+                name: name,
+                phone: phone
+            };
+            
+            appState.customers.push(newCustomer);
+            saveData();
+            renderCustomers();
+            closeModal('addCustomerModal');
+        }
+
+        // Render Functions
+        function renderCustomers() {
+            var container = document.getElementById('customersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.customers.length; i++) {
+                var customer = appState.customers[i];
+                var pending = getCustomerPendingAmount(customer.id);
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + customer.name + '</div>' +
+                            '<div class="card-phone">📞 ' + customer.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Pending: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue">Add Sale</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green">Add Payment</button>' : '') +
+                        '</div>' +
+                    '</div>';
+                container.appendChild(card);
+            }
+        }
+
+        function renderSuppliers() {
+            var container = document.getElementById('suppliersList');
+            container.innerHTML = '';
+            
+            for (var i = 0; i < appState.suppliers.length; i++) {
+                var supplier = appState.suppliers[i];
+                var pending = getSupplierPendingAmount(supplier.id);
+                
+                var card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = 
+                    '<div class="card-header">' +
+                        '<div>' +
+                            '<div class="card-title">' + supplier.name + '</div>' +
+                            '<div class="card-phone">📞 ' + supplier.phone + '</div>' +
+                            '<div class="pending-amount ' + (pending > 0 ? 'pending-positive' : 'pending-zero') + '">' +
+                                'Baki: ' + formatCurrency(pending) +
+                            '</div>' +
+                        '</div>' +
+                        '<div class="card-actions">' +
+                            '<button class="action-btn btn-blue">Add Purchase</button>' +
+                            (pending > 0 ? '<button class="action-btn btn-green">Paid</button>' : '') +
+                        '</div>' +
+                    '</div>';
+                container.appendChild(card);
+            }
